@@ -1,0 +1,120 @@
+pragma solidity ^0.5.0;
+
+import "@openzeppelin/contracts/access/Roles.sol";
+import "@openzeppelin/contracts/crowdsale/Crowdsale.sol";
+
+contract Distributor is Crowdsale {
+    using SafeMath for uint256;
+    using Roles for Roles.Role;
+
+    Roles.Role private _owners;
+
+    bool private _active;
+    uint256 private _round;
+    uint256 private _transactionCap;
+    uint256 private _cap; // total cap in wei
+    uint256 private _changeableRate; // token / wei price
+
+    constructor(
+        uint256 initialRate,
+        address payable wallet,
+        IERC20 tokenAddr,
+        uint256 transactionCap,
+        uint256 cap,
+        address admin
+    ) public Crowdsale(initialRate, wallet, tokenAddr) {
+        require(initialRate > 0, "Initial rate is less than 0");
+        require(cap > 0, "Wei Cap is less than 0");
+        _owners.add(admin);
+        _transactionCap = transactionCap;
+        _round = 1;
+        _cap = cap;
+        _changeableRate = initialRate;
+    }
+
+    modifier onlyAdmin() {
+        require(_owners.has(msg.sender), "DOES_NOT_HAVE_ADMIN_ROLE");
+        _;
+    }
+
+    function setRound(uint256 newRate, uint256 newCap) external onlyAdmin {
+        _round = _round.add(1);
+        _setRate(newRate);
+        _setCap(newCap);
+    }
+
+    function setActivity(bool isActive) external onlyAdmin {
+        _active = isActive;
+    }
+
+    function setTransactionCap(uint256 newTransactionCap) external onlyAdmin {
+        _transactionCap = newTransactionCap;
+    }
+
+    function _setRate(uint256 newRate) private {
+        _changeableRate = newRate;
+    }
+
+    function _setCap(uint256 additionalCap) private {
+        _cap = _cap.add(additionalCap);
+    }
+
+    function active() public view returns (bool) {
+        return _active;
+    }
+
+    function transactionCap() public view returns (uint256) {
+        return _transactionCap;
+    }
+
+    function round() public view returns (uint256) {
+        return _round;
+    }
+
+    function rate() public view returns (uint256) {
+        return _changeableRate;
+    }
+
+    function cap() public view returns (uint256) {
+        return _cap;
+    }
+
+    /**
+     * @dev Checks whether the cap has been reached.
+     * @return Whether the cap was reached
+     */
+    function capReached() public view returns (bool) {
+        return weiRaised() >= _cap;
+    }
+
+    function capLeft() public view returns (uint256) {
+        return _cap.sub(weiRaised());
+    }
+
+    /**
+     * @dev Overrides the original function
+     * @return How much token you can purchase
+     */
+    function _getTokenAmount(uint256 weiAmount)
+        internal
+        view
+        returns (uint256)
+    {
+        return weiAmount.mul(_changeableRate);
+    }
+
+    /**
+     * @dev Extend parent behavior requiring purchase to respect the funding cap.
+     * @param beneficiary Token purchaser
+     * @param weiAmount Amount of wei contributed
+     */
+    function _preValidatePurchase(address beneficiary, uint256 weiAmount)
+        internal
+        view
+    {
+        super._preValidatePurchase(beneficiary, weiAmount);
+        require(active(), "Crowdsale is Paused");
+        require(weiAmount <= transactionCap(), "Exceeds transaction cap");
+        require(weiRaised().add(weiAmount) <= _cap, "Exceeds total cap");
+    }
+}
