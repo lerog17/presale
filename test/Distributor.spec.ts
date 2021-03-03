@@ -10,8 +10,8 @@ const overrides = {
   gasLimit: 100000,
 };
 
-describe("Distributor", () => {
-  const [wallet, admin, treasury] = new MockProvider().getWallets();
+describe.only("Distributor", () => {
+  const [deployer, treasury, user] = new MockProvider().getWallets();
 
   let token: Contract;
   let distributor: Contract;
@@ -21,24 +21,21 @@ describe("Distributor", () => {
   const SUPPLY_AMOUNT = utils.parseUnits("1000000000"); // 1 bill
 
   beforeEach(async () => {
-    token = await deployContract(wallet, Denex, [
+    token = await deployContract(deployer, Denex, [
       treasury.address,
       SUPPLY_AMOUNT,
     ]);
-    distributor = await deployContract(wallet, Distributor, [
+    distributor = await deployContract(deployer, Distributor, [
       100,
       treasury.address,
       token.address,
       utils.parseUnits("1"), // trx cap
       utils.parseUnits("10"), // total cap
-      admin.address,
+      deployer.address,
     ]);
     tokenAsTreasury = token.connect(treasury);
-    distributorAsAdmin = distributor.connect(admin);
-    await tokenAsTreasury.transfer(
-      distributor.address,
-      utils.parseUnits("1000")
-    );
+    tokenAsTreasury.approve(distributor.address, utils.parseUnits("10000000"));
+    distributorAsAdmin = distributor.connect(deployer);
   });
 
   it("Check initial Rate", async () => {
@@ -50,7 +47,8 @@ describe("Distributor", () => {
   });
 
   it("Only owner", async () => {
-    await expect(distributor.setRound(90, 200000)).to.be.revertedWith(
+    const distributorAsUser = distributor.connect(user);
+    await expect(distributorAsUser.setRound(90, 200000)).to.be.revertedWith(
       "DOES_NOT_HAVE_ADMIN_ROLE"
     );
   });
@@ -65,7 +63,7 @@ describe("Distributor", () => {
 
   it("Error if Paused and buying", async () => {
     await expect(
-      distributor.buyTokens(wallet.address, {
+      distributor.buyTokens(user.address, {
         ...overrides,
         value: 100,
       })
@@ -75,7 +73,7 @@ describe("Distributor", () => {
   it("Error if trx cap reached", async () => {
     await distributorAsAdmin.setActivity(true);
     await expect(
-      distributor.buyTokens(wallet.address, {
+      distributor.buyTokens(user.address, {
         ...overrides,
         value: utils.parseEther("10"),
       })
@@ -84,28 +82,28 @@ describe("Distributor", () => {
 
   it("Raises successfully by buyTokens", async () => {
     await distributorAsAdmin.setActivity(true);
-    await distributor.buyTokens(wallet.address, {
+    await distributor.buyTokens(user.address, {
       value: 100,
     });
 
-    expect(await token.balanceOf(wallet.address)).to.equal(10000);
+    expect(await token.balanceOf(user.address)).to.equal(10000);
   });
 
   it("Raises successfully by send", async () => {
     await distributorAsAdmin.setActivity(true);
-    await wallet.sendTransaction({
+    await user.sendTransaction({
       to: distributor.address,
       value: 100,
     });
 
-    expect(await token.balanceOf(wallet.address)).to.equal(10000);
+    expect(await token.balanceOf(user.address)).to.equal(10000);
   });
 
   it("Cap reached", async () => {
     await distributorAsAdmin.setActivity(true);
     const capLeft = await distributor.capLeft();
     await distributorAsAdmin.setTransactionCap(capLeft);
-    await distributor.buyTokens(wallet.address, {
+    await distributor.buyTokens(user.address, {
       value: capLeft, // buy all tokens
     });
     const capReached = await distributor.capReached();
@@ -117,12 +115,12 @@ describe("Distributor", () => {
     await distributorAsAdmin.setActivity(true);
     const capLeft = await distributor.capLeft();
     await distributorAsAdmin.setTransactionCap(capLeft);
-    await distributor.buyTokens(wallet.address, {
+    await distributor.buyTokens(user.address, {
       value: capLeft,
     });
 
     await expect(
-      distributor.buyTokens(wallet.address, {
+      distributor.buyTokens(user.address, {
         value: 1,
       })
     ).to.be.revertedWith("Exceeds total cap");

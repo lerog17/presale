@@ -8,6 +8,8 @@ contract Distributor is Crowdsale {
     using Roles for Roles.Role;
 
     Roles.Role private _owners;
+    IERC20 private _token;
+    address private _wallet;
 
     bool private _active;
     uint256 private _round;
@@ -30,6 +32,8 @@ contract Distributor is Crowdsale {
         _round = 1;
         _cap = cap;
         _changeableRate = initialRate;
+        _token = tokenAddr;
+        _wallet = wallet;
     }
 
     modifier onlyAdmin() {
@@ -101,6 +105,14 @@ contract Distributor is Crowdsale {
         returns (uint256)
     {
         return weiAmount.mul(_changeableRate);
+    }
+
+    /**
+     * @dev Overrides the original function to use safeTransferFrom
+     * @return How much token you can purchase
+     */
+    function _deliverTokens(address beneficiary, uint256 tokenAmount) internal {
+        _token.safeTransferFrom(_wallet, beneficiary, tokenAmount);
     }
 
     /**
